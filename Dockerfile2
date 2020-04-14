@@ -1,0 +1,17 @@
+FROM docker.io/openjdk:11.0.4-jre-slim
+
+EXPOSE 5030/tcp 9000-9100/tcp 7800/tcp 7900/tcp
+
+ENV JAVA_OPTS -Xms1g -Xmx4g
+
+WORKDIR /opt/In1
+
+ENTRYPOINT ["/opt/In1/bin/Start"]
+
+ADD In1.tgz /opt
+
+COPY ojdbc8-19.3.jar /opt/In1/lib/
+
+RUN groupadd -r user && useradd -g user dev && chmod o+rwx /opt/In1
+
+USER dev
