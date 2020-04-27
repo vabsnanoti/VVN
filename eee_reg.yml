@@ -1,0 +1,168 @@
+---
+# this will load the registry hive and make sure  the registry entries
+# for EEE are correct/consistent
+- name: determine if EEE service is installed
+  win_shell: |
+      Get-Service EnterpriseExcelExecutor -ErrorAction SilentlyContinue
+  register: eee_service_installed
+  changed_when: false
+  failed_when: eee_service_installed.rc >= 2
+## TODO:  update win_service to skip if any error
+
+- name: stop EEE service if installed
+  win_service:
+    name: EnterpriseExcelExecutor
+    state: stopped
+  register: EEE_service_state
+  when: eee_service_installed.rc is defined and eee_service_installed.rc == 0
+
+#  when: eee_service_installed.rc is defined and eee_service_installed.rc == 0
+- name: wait for the EEE service to unload the hive
+  pause:
+    seconds: "{{ coex_service_stop_timeout }}"
+
+- name: determine which version of Excel is installed
+  set_fact:
+    excel_ver: >-
+      {{ '16.0' if ansible_os_name.find("2016") != -1 else '12.0'}}
+
+- name: print out the registry hive I'm editing
+  debug:
+    msg: "{{ coex_hive_root }} is coex_hive_root"
+
+- name: determine if user profile has been created
+  win_stat:
+    path: "{{ coex_hive_root }}"
+    get_checksum: no
+  register: user_profile
+
+- name: make the registry edits
+  block:
+    - name: disable First Run screens
+      win_regedit:
+        path: "{{ coex_excel_root }}\\{{ excel_ver }}\\Excel\\Options"
+        name: "FirstRun"
+        data: 0x00000001
+        type: dword
+        state: present
+        hive: "{{ coex_hive_root }}"
+
+    - name: Excel Security registry changes (Link update & VBA)
+      win_regedit:
+        path: "{{ coex_excel_root }}\\{{ excel_ver }}\\Excel\\Security"
+        name: "{{ item.name }}"
+        data: "{{ item.data }}"
+        type: "{{ item.type }}"
+        state: present
+        hive: "{{ coex_hive_root }}"
+      loop:
+        - { name: "AccessVBOM", data: 0x00000001, type: dword }
+        - { name: "VBAWarnings", data: 0x00000001, type: dword }
+        - { name: "DataConnectionWarnings", data: 0x00000000, type: dword }
+        - { name: "WorkbookLinkWarnings", data: 0x00000000, type: dword }
+        - { name: "DisableDDEServerLaunch", data: 0x00000001, type: dword }
+        - { name: "DisableDDEServerLookup", data: 0x00000001, type: dword }
+
+    - name: Excel Common Security registry changes (ActiveX)
+      win_regedit:
+        path: "{{ coex_excel_root }}\\Common\\Security"
+        name: "{{ item.name }}"
+        data: "{{ item.data }}"
+        type: "{{ item.type }}"
+        state: present
+        hive: "{{ coex_hive_root }}"
+      loop:
+        - { name: "DisableAllActiveX", data: 0x00000000, type: dword }
+        - { name: "UFIControls", data: 0x00000001, type: dword }
+
+    - name: Excel Trusted Locations registry changes
+      win_regedit:
+        path: "{{ coex_excel_root }}\\{{ excel_ver }}\\Excel\\Security\\Trusted Locations\\Location50"
+        name: "{{ item.name }}"
+        data: "{{ item.data }}"
+        type: "{{ item.type }}"
+        state: present
+        hive: "{{ coex_hive_root }}"
+      loop:
+        - { name: "Path", data: "D:\\EnterpriseExcelExecutor\\TempFiles\\", type: string}
+        - { name: "AllowSubFolders", data: 0x00000001, type: dword}
+        - { name: "Description", data: "ExcelExecutor Tempfiles", type: string}
+
+    - name: Excel TrustCenter registry changes
+      win_regedit:
+        path: "{{ coex_excel_root }}\\{{ excel_ver }}\\Common\\TrustCenter"
+        name: "TrustBar"
+        data: 0x00000001
+        type: dword
+        state: present
+        hive: "{{ coex_hive_root }}"
+
+    - name: Excel Security Protected View  registry settings
+      win_regedit:
+        path: "{{ coex_excel_root }}\\{{ excel_ver }}\\Excel\\Security\\ProtectedView"
+        name: "{{ item.name }}"
+        data: "{{ item.data }}"
+        type: "{{ item.type }}"
+        state: present
+        hive: "{{ coex_hive_root }}"
+      loop:
+        - { name: "DisableInternetFilesInPV", data: 0x00000001, type: dword}
+        - { name: "DisableAttachmentsInPV", data: 0x00000001, type: dword}
+        - { name: "DisableUnsafeLocationsInPV", data: 0x00000001, type: dword}
+
+    - name: Excel Privacy registry settings
+      win_regedit:
+        path: "{{ coex_excel_root }}\\{{ excel_ver }}\\Common\\HelpViewer"
+        name: "UseOnlineContent"
+        data: 0x00000001
+        type: dword
+        state: present
+        hive: "{{ coex_hive_root }}"
+
+  when: user_profile.stat.exists
+    and (eee_serivce_installed is undefined or EEE_service_state.state == 'stopped')
+    and not ansible_check_mode
+
+- name: win_regedit cannot run in check mode
+  debug:
+    msg: |
+      win_regedit cannot run in check mode on a registry hive that's in use. We have not stopped
+      the EEE service, so it cannot verify whether changes are to be made. Sorry.
+  when: ansible_check_mode and EEE_service_state is defined
+
+- name: output if user not created
+  debug:
+    msg: |
+      {{ EEEuserId }} has not logged into this host. No user profile has been created.
+           *after* the current job completes, please log into this host as {{ EEEuserId }},
+           then execute the Jenkins start job on this host. Thank you.
+
+  when: not user_profile.stat.exists
+
+- name: make sure system32/systemprofile directory exists
+  win_file:
+    path: "{{ ansible_env['SystemRoot'] }}\\System32\\config\\sytemprofile"
+    state: directory
+
+- name: make sure sysWOW64/systemprofile directory exists
+  win_file:
+    path: "{{ ansible_env['SystemRoot'] }}\\SysWOW64\\config\\sytemprofile"
+    state: directory
+
+- name: set permissions/ACLs on systemprofile dir
+  win_acl:
+    user: "{{ EEEuserId }}"
+    path: "{{ ansible_env['SystemRoot'] }}\\System32\\config\\sytemprofile"
+    rights: FullControl, Traverse
+    type: allow
+    state: present
+    inherit: ContainerInherit, ObjectInherit
+
+- name: set permissions/ACLs on sysWOW64/systemprofile dir
+  win_acl:
+    user: "{{ EEEuserId }}"
+    path: "{{ ansible_env['SystemRoot'] }}\\SysWOW64\\config\\sytemprofile"
+    rights: FullControl, Traverse
+    type: allow
+    state: present
+    inherit: ContainerInherit, ObjectInherit
