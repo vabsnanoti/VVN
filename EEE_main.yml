@@ -1,0 +1,40 @@
+---
+# tasks file for coex
+
+- name: CoEx Stage
+  block:
+  - name: Set Enterpise Excel Executor Directory
+    win_file:
+      state: directory
+      path: "{{ coex_eee_directory }}"
+
+  - name: Set Automation Powershell Installer Script
+    win_copy:
+      src: "{{ tower_git_auto_scripts }}/DA/server_scripts/DA_EEE16_Installer.ps1"
+      dest: '{{ coex_eee_directory }}\\DA_EEE16_Installer.ps1'
+
+  # tag for block CoEx Stage
+  tags:
+    - coex_stage
+
+- name: Perform File Cleanup
+  include_role:
+    name: filecleanup
+    apply:
+      tags:
+        - coex_filecleanup
+  vars:
+    logfile: "{{ { 'windows_paths': coex_file_retention_paths } }}"
+  ignore_errors: true
+  tags:
+    - coex_filecleanup
+
+# Set registry entries for Excel
+- name: Update registry settings for Excel
+  include_tasks: eee_reg.yml
+  when: |
+    jenkins_type_of_action is defined
+    and jenkins_type_of_action in "Install, Upgrade, Restart, Start"
+  apply:
+    tags:
+      - coex_eee_reg
