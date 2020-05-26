@@ -1,0 +1,10 @@
+---
+- name: Add a user in windows boxes
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Add User
+      win_user:
+        name: devops
+        password: "P@ssw0rd"
+        state: present
