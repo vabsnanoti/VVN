@@ -1,0 +1,61 @@
+---
+- hosts: analyticsteam
+  remote_user: devops
+  become: true
+  vars:
+    - devops_password: 'P@ssw0rd'
+  tasks:
+  - name: Add a new user named devops
+    user:
+      name: devops
+      shell: /bin/bash
+      password: "{{ devops_password }}"
+  - name: Add devops user to the sudoers
+    copy:
+      dest: "/etc/sudoers.d/devops"
+      content: "devops  ALL=(ALL)  NOPASSWD: ALL"
+
+  - name: Deploy SSH Key
+    authorized_key:
+      user: devops
+      state: present
+      manage_dir: true
+      key: "{{ lookup('file', '/home/devops/.ssh/id_rsa.pub') }}"
+
+  - name: Restart ssh
+    service:
+      name: sshd
+      state: restarted
+~                          
+
+
+
+
+34.199.227.94 DemoAnalytics123!@#$
+DemoAnalytics123!@#$
+https://oracle.zoom.us/my/karthik.tadanki?pwd=eGFwUC9EVGQreWQ0OGU3a3YzWE96dz09
+
+
+
+https://10.42.0.42/
+
+    Username: admin
+    Password: rZEQHNjSxyjQ 
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+ansible_ssh_user: _your_ssh_user_
+ansible_ssh_pass: _your_ssh_pass_
+ansible_ssh_port: 5986
+ansible_connection: winrm
+ansible_winrm_server_cert_validation: ignore
